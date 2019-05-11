@@ -1,0 +1,176 @@
+buildscript {
+	ext {
+		springBootVersion = '2.1.4.RELEASE'
+		springCloudVersion = 'Greenwich.SR1'
+		checkstyleVersion = '8.16'
+	}
+	
+	repositories {
+       
+    }
+	dependencies {
+		classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+		 classpath(group: 'org.jfrog.buildinfo', name: 'build-info-extractor-gradle', version: '4.+')
+
+	}
+}
+
+plugins {
+    id 'java'
+    id 'checkstyle'
+    id 'jacoco'
+    id 'pmd'
+    id 'eclipse-wtp'
+    id 'maven-publish'
+    id 'com.palantir.docker' version '0.13.0'
+}
+
+apply plugin: "com.jfrog.artifactory"
+apply plugin: 'io.spring.dependency-management'
+apply plugin: 'org.springframework.boot'
+
+def enableStandards = false
+
+group = 'com.example.demo'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '1.8'
+
+
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+    resolutionStrategy.cacheDynamicVersionsFor 0, 'minutes'
+}
+
+
+dependencies {
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation group: 'com.google.guava', name: 'guava', version: '27.1-jre'
+	implementation 'org.springframework.cloud:spring-cloud-config-server'
+
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation("org.springframework.ldap:spring-ldap-core")
+    implementation("org.springframework.security:spring-security-ldap")
+    implementation("org.springframework:spring-tx")
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+	}
+}
+
+
+artifactory {
+    contextUrl = "${artifactory_contextUrl}" //The base Artifactory URL if not overridden by the publisher/resolver
+    publish {
+        repository {
+            repoKey = 'sunlife-repo'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            maven = true            
+       }
+        defaults {
+            publications ('mavenJava')
+        }
+    }
+    resolve {
+        repository {
+            repoKey = 'sunlife-gradle'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            maven = true
+        }
+    }
+}
+
+
+docker {
+    name "sv516070.ph.sunlife:8081/sunlife-docker/$project.name:$project.version"
+    tags 'latest'
+    dependsOn build
+    files bootJar
+    dockerfile file('src/main/docker/Dockerfile')
+    buildArgs([BUILD_VERSION: project.version])
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+checkstyle {
+
+  configFile = file("${project.rootDir}/rules/checkstyle-slf.xml")
+
+  ignoreFailures = !enableStandards
+  maxWarnings = 1
+
+  checkstyleMain {
+   source = sourceSets.main.allSource
+ }
+
+ configurations {
+   checkstyle
+ }
+
+ dependencies{
+   assert project.hasProperty("checkstyleVersion")
+   checkstyle "com.puppycrawl.tools:checkstyle:${checkstyleVersion}"
+ }
+}
+
+
+jacoco {
+  toolVersion = "0.8.1"
+  reportsDir = file("$buildDir/customJacocoReportDir")    
+}
+
+jacocoTestReport {
+  reports {
+    xml.enabled false
+    csv.enabled false
+    html.destination file("${buildDir}/reports/jacoco")
+  }
+
+  afterEvaluate {
+        classDirectories = files(classDirectories.files.collect {
+            fileTree(dir: it,
+                    exclude: [])
+        })
+    }
+
+}
+
+jacocoTestCoverageVerification {
+	violationRules {
+    rule {
+     enabled = enableStandards
+     element = 'CLASS'
+     excludes = [
+  
+     ]
+     limit {
+      minimum = 0.80
+    }
+  }
+}
+finalizedBy jacocoTestReport
+}
+check.dependsOn jacocoTestCoverageVerification
+
+
+pmd {
+  ignoreFailures = !enableStandards
+  reportsDir = file("$project.buildDir/reports/pmd")
+  ruleSetFiles = files("$project.rootDir/rules/pmd-slf.xml")
+  	ruleSets = [] // Remove built-in rule sets
+  }
+  

@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: spring-cloud-config
+  cloud:
+    config:
+      server:
+        encrypt:
+          enabled: false
+  profiles:
+    active: ${ENVIRONMENT}
+encrypt:
+  key: ${ENCRYPT_KEY}
